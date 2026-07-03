@@ -1,35 +1,44 @@
 # 🛒 E-Commerce Microservices Platform
 
-A production-ready, cloud-native e-commerce backend built with a **microservices architecture** using **FastAPI** and **AWS DynamoDB**. Each service is independently deployable, follows clean architecture principles, and communicates via synchronous REST APIs.
+A production-ready, cloud-native e-commerce backend built on two complementary paradigms: **synchronous REST microservices** (FastAPI + AWS DynamoDB) for real-time client interactions, and **asynchronous event-driven serverless functions** (AWS Lambda) for high-throughput background processing. Each service is independently deployable and follows clean architecture principles.
 
 ---
 
 ## 📋 Table of Contents
 
 - [Architecture Overview](#architecture-overview)
+  - [Synchronous REST Layer](#synchronous-rest-layer)
+  - [Asynchronous Event-Driven Layer](#asynchronous-event-driven-layer)
+  - [End-to-End Flow](#end-to-end-flow)
 - [Services Summary](#services-summary)
 - [Technology Stack](#technology-stack)
 - [Project Structure](#project-structure)
 - [Data Models](#data-models)
-- [API Reference](#api-reference)
+- [API Reference — REST Services](#api-reference--rest-services)
   - [Product Service](#1-product-service--port-8000)
   - [Inventory Service](#2-inventory-service--port-8001)
   - [Cart Service](#3-cart-service--port-8002)
   - [Payment Service](#4-payment-service--port-8003)
   - [Order Service](#5-order-service--port-8004)
   - [Search Service](#6-search-service--port-8005)
+- [Event-Driven Services](#event-driven-services)
+  - [S3 Bulk Product Ingestion Pipeline](#s3-bulk-product-ingestion-pipeline)
+  - [Asynchronous Payment Status Orchestrator](#asynchronous-payment-status-orchestrator)
 - [Inter-Service Communication](#inter-service-communication)
 - [DynamoDB Schema](#dynamodb-schema)
 - [Error Handling](#error-handling)
 - [Getting Started](#getting-started)
 - [Running the Services](#running-the-services)
 - [Design Patterns](#design-patterns)
+- [Future Improvements](#future-improvements)
 
 ---
 
 ## Architecture Overview
 
-This platform follows a **microservices architecture** where each domain is encapsulated in its own independently runnable service. Services communicate synchronously over HTTP, with each service owning its own DynamoDB table.
+### Synchronous REST Layer
+
+The REST layer handles all real-time, user-facing interactions. Each domain is encapsulated in its own independently runnable FastAPI service, communicating over HTTP, with each service owning its own DynamoDB table.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -56,42 +65,93 @@ This platform follows a **microservices architecture** where each domain is enca
 ┌───────┴────────┐                           ┌──────────┴──────────┐
 │  Order Service │                           │   Payment Service   │
 │    :8004       │                           │       :8003         │
-└────────────────┘                           └─────────────────────┘
-        ▲
+└───────┬────────┘                           └─────────────────────┘
         │ (fetch cart, clear cart)
-        │
-┌───────┴────────┐
-│  Cart Service  │
-│    :8002       │
-└────────────────┘
+        ▼
+┌───────────────┐
+│  Cart Service │
+│    :8002      │
+└───────────────┘
 ```
 
-### Service Communication Flow (Happy Path)
+### Asynchronous Event-Driven Layer
+
+The event-driven layer handles background operations that do not need to block the user. These are serverless AWS Lambda functions triggered directly by infrastructure events, not by HTTP clients.
 
 ```
-User → Search Service     → Find product
-User → Cart Service       → Add item (validates stock via Inventory Service)
-User → Order Service      → Checkout (fetches Cart, reserves stock via Inventory Service)
-User → Payment Service    → Initiate & verify payment
-Admin → Order Service     → Update status to SHIPPED/COMPLETED → Inventory deducted permanently
+[ Store Admin ]
+      │
+      │ 1. Uploads new_catalog_2026.csv
+      ▼
+[ Amazon S3 Bucket ]
+      │
+      │ ObjectCreated:Put Event (native AWS trigger)
+      ▼
+[ BulkProductImportLambda ]
+      │
+      ├──► Parse & validate CSV rows
+      ├──► Batch write to Products DynamoDB Table (25 items/batch)
+      ├──► Initialize stock to 0 in Inventory Service
+      └──► Index each product in Search Service
+
+
+[ Payment Gateway / Checkout UI ]
+      │
+      │ 2. Payment completed by customer
+      ▼
+[ Amazon SNS / EventBridge ]
+      │
+      │ PaymentSuccessEvent (async notification)
+      ▼
+[ PaymentSuccessLambda ]
+      │
+      ├──► Parse order_id & transaction_id from event payload
+      ├──► Verify order is in PENDING_PAYMENT state
+      ├──► Atomic conditional update: status → PAID
+      └──► Idempotency guard (no double-processing on retries)
+```
+
+### End-to-End Flow
+
+```
+Admin   → S3 Upload            → Bulk import products (async, Lambda)
+User    → Search Service       → Find products by keyword
+User    → Cart Service         → Add items (validates stock via Inventory Service)
+User    → Order Service        → Checkout (fetches Cart, reserves stock via Inventory)
+User    → Payment Service      → Initiate payment, receive client_secret
+User    → Payment Gateway      → Complete payment on frontend
+Gateway → SNS / EventBridge    → Fires PaymentSuccessEvent (async)
+Lambda  → Order DynamoDB Table → Updates order status to PAID (Lambda)
+Admin   → Order Service        → Update status to SHIPPED/COMPLETED → Inventory deducted
 ```
 
 ---
 
 ## Services Summary
 
+### REST Services
+
 | Service | Port | Responsibility | DynamoDB Table |
 |---|---|---|---|
-| **Product Service** | 8000 | Product catalog CRUD, triggers inventory init & search indexing | `Products` |
-| **Inventory Service** | 8001 | Stock tracking, atomic reserve/deduct/release operations | `Inventory` |
-| **Cart Service** | 8002 | User shopping cart with TTL-based expiry | `Carts` |
+| **Product Service** | 8000 | Product catalog CRUD; triggers inventory init & search indexing on create | `Products` |
+| **Inventory Service** | 8001 | Stock tracking; atomic reserve / deduct / release operations | `Inventory` |
+| **Cart Service** | 8002 | User shopping cart with TTL-based 7-day auto-expiry | `Carts` |
 | **Payment Service** | 8003 | Payment initiation, verification, and webhook processing | `Payments` |
-| **Order Service** | 8004 | Order lifecycle management, orchestrates cart + inventory | `Orders` |
-| **Search Service** | 8005 | Full-text product search with DynamoDB-backed index | `SearchIndex` |
+| **Order Service** | 8004 | Order lifecycle management; orchestrates Cart + Inventory | `Orders` |
+| **Search Service** | 8005 | Full-text product search backed by a DynamoDB scan index | `SearchIndex` |
+
+### Event-Driven Serverless Services
+
+| Lambda Function | Trigger | Responsibility | DynamoDB Table |
+|---|---|---|---|
+| **BulkProductImportLambda** | S3 `ObjectCreated:Put` | Parse CSV, batch-write products, initialize inventory & search | `Products` |
+| **PaymentSuccessLambda** | SNS / EventBridge event | Atomic order status update to `PAID`; idempotency-safe | `Orders` |
 
 ---
 
 ## Technology Stack
+
+### REST Layer
 
 | Layer | Technology |
 |---|---|
@@ -103,11 +163,22 @@ Admin → Order Service     → Update status to SHIPPED/COMPLETED → Inventory
 | **Logging** | Python `logging` module (structured) |
 | **HTTP Client** | `requests` (inter-service calls) |
 
+### Event-Driven Layer
+
+| Layer | Technology |
+|---|---|
+| **Compute** | AWS Lambda (Python runtime) |
+| **File Storage / Trigger** | Amazon S3 |
+| **Messaging / Trigger** | Amazon SNS or Amazon EventBridge |
+| **Failure Handling** | AWS Dead-Letter Queue (SQS DLQ) |
+| **Database** | AWS DynamoDB (shared tables with REST layer) |
+| **AWS SDK** | Boto3 |
+
 ---
 
 ## Project Structure
 
-Each microservice follows an identical clean architecture layout:
+Each REST microservice follows an identical clean architecture layout. The Lambda functions are standalone Python handlers.
 
 ```
 E-Commerce/
@@ -134,10 +205,16 @@ E-Commerce/
 ├── cart-service/          # (same structure, port 8002)
 ├── payment-service/       # (same structure, port 8003)
 ├── order-service/         # (same structure, port 8004)
-└── search-service/        # (same structure, port 8005)
+├── search-service/        # (same structure, port 8005)
+│
+└── lambdas/
+    ├── bulk_product_import/
+    │   └── handler.py               # S3-triggered bulk CSV importer
+    └── payment_success/
+        └── handler.py               # SNS/EventBridge payment status updater
 ```
 
-### Layer Responsibilities
+### Layer Responsibilities (REST Services)
 
 | Layer | File | Role |
 |---|---|---|
@@ -239,7 +316,7 @@ search_tags: str         # Lowercase concatenation of name + description + categ
 
 ---
 
-## API Reference
+## API Reference — REST Services
 
 All services return responses in a consistent envelope:
 
@@ -302,7 +379,7 @@ Base URL: `http://localhost:8000/api/v1/products`
 }
 ```
 
-> **Side Effects on Create:** Automatically triggers `POST /api/v1/inventory/initialize` on Inventory Service and `POST /api/v1/search/index` on Search Service. Both calls are fire-and-forget — a failure does not roll back product creation.
+> **Side Effects on Create:** Automatically triggers `POST /api/v1/inventory/initialize` on the Inventory Service and `POST /api/v1/search/index` on the Search Service. Both calls are fire-and-forget — a failure does not roll back product creation.
 
 #### `PATCH /{product_id}` — Update Product
 
@@ -537,7 +614,7 @@ No request body required. The service reads the user's cart automatically via th
 > 3. Persist the Order record with status `PENDING_PAYMENT`
 > 4. Clear the user's cart
 >
-> If stock reservation fails for any item, a `409 Conflict` is returned. Note: partial reservations are not automatically rolled back in the current implementation (a Saga compensating transaction would be needed for full ACID guarantees).
+> If stock reservation fails for any item, a `409 Conflict` is returned.
 
 #### `PATCH /{order_id}/status` — Update Status
 
@@ -562,7 +639,7 @@ No request body required.
 
 Base URL: `http://localhost:8005/api/v1/search`
 
-| Method | Endpoint | Description | Request Body |
+| Method | Endpoint | Description | Params / Body |
 |---|---|---|---|
 | `GET` | `/` | Search products by keyword | `?q=<query>` (query param) |
 | `POST` | `/index` | Index a product (internal, called by Product Service) | `IndexProductDTO` |
@@ -587,15 +664,14 @@ Base URL: `http://localhost:8005/api/v1/search`
 
 **Response `404 Not Found`** (no results):
 ```json
-{
-  "success": false,
-  "error": " Products Unavailable "
-}
+{ "success": false, "error": " Products Unavailable " }
 ```
 
-> **Search Implementation:** The search index stores a `searchTags` field which is a lowercase concatenation of `name + description + category`. Queries are matched using DynamoDB `Scan` with `FilterExpression contains`. This is suitable for development/small catalogs; production systems should replace this with OpenSearch or Elasticsearch.
+> **Search Implementation:** The `searchTags` field stores a lowercase concatenation of `name + description + category`. Queries are matched using a DynamoDB `Scan` with `FilterExpression contains`. Suitable for development and small catalogs; production systems should replace this with OpenSearch or Elasticsearch.
 
 #### `POST /index` — Index Product (Internal)
+
+This endpoint is called automatically by the Product Service on product creation and by `BulkProductImportLambda` after a batch CSV import. It is not intended to be called directly by end-users.
 
 **Request Body:**
 ```json
@@ -609,13 +685,199 @@ Base URL: `http://localhost:8005/api/v1/search`
 }
 ```
 
-> This endpoint is not intended to be called directly by end-users. It is invoked automatically by the Product Service during product creation.
+---
+
+## Event-Driven Services
+
+These two serverless Lambda functions extend the platform with background processing capabilities. They are **not HTTP servers** — they are deployed to AWS Lambda and triggered automatically by native AWS infrastructure events, operating entirely independently of the REST layer.
+
+---
+
+### S3 Bulk Product Ingestion Pipeline
+
+#### What It Does
+
+Allows store administrators to catalog thousands of products simultaneously by uploading a single `.csv` file to an S3 bucket — instead of making individual `POST /products` HTTP calls. AWS infrastructure detects the file and processes the entire catalog in the background without blocking any user-facing APIs.
+
+#### Trigger
+
+An `ObjectCreated:Put` event fires automatically when a `.csv` file is uploaded to the designated S3 bucket path (e.g., `s3://our-ecommerce-uploads/products/`).
+
+#### Technical Workflow
+
+```
+1. Admin uploads new_catalog_2026.csv to S3
+        │
+        ▼ S3 ObjectCreated:Put event
+2. BulkProductImportLambda is invoked
+   Payload contains: { bucket_name, file_key }
+        │
+        ▼ boto3: s3.get_object()
+3. CSV is streamed directly into memory (no disk I/O)
+   csv.DictReader parses rows
+        │
+        ▼ Validates required columns: sku, name, price, category
+4. UUID and timestamps are generated per row
+        │
+        ▼ DynamoDB batch_writer() — max 25 items per batch
+5. Products written to Products table in chunks
+        │
+        ├──► Inventory Service: POST /initialize (stock = 0)
+        └──► Search Service:    POST /index (product indexed)
+```
+
+#### Lambda Handler (Pattern)
+
+```python
+import csv
+import uuid
+import codecs
+import boto3
+from datetime import datetime, timezone
+
+s3_client = boto3.client('s3')
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('Products')
+
+def lambda_handler(event, context):
+    # 1. Extract Bucket and Key from S3 event
+    record = event['Records'][0]
+    bucket_name = record['s3']['bucket']['name']
+    file_key = record['s3']['object']['key']
+
+    # 2. Stream and decode CSV directly from S3
+    response = s3_client.get_object(Bucket=bucket_name, Key=file_key)
+    csv_reader = csv.DictReader(codecs.getreader('utf-8')(response['Body']))
+
+    # 3. Batch write to DynamoDB (25 items per batch = max DynamoDB allows)
+    with table.batch_writer() as batch:
+        for row in csv_reader:
+            product_item = {
+                'product_id': str(uuid.uuid4()),
+                'sku': row['sku'],
+                'name': row['name'],
+                'price': float(row['price']),
+                'status': 'ACTIVE',
+                'created_at': datetime.now(timezone.utc).isoformat()
+            }
+            batch.put_item(Item=product_item)
+
+    return {"status": "Success", "message": f"Processed {file_key}"}
+```
+
+#### Required CSV Format
+
+| Column | Type | Required | Notes |
+|---|---|---|---|
+| `sku` | string | ✅ | Must be unique |
+| `name` | string | ✅ | Product display name |
+| `price` | float | ✅ | Must be a valid number |
+| `category` | string | ✅ | Used for search tagging |
+| `description` | string | ⬜ | Optional; used in search index |
+| `brand` | string | ⬜ | Optional |
+
+#### Engineering Highlights
+
+**DynamoDB Batch Writer** — Bundles writes into groups of 25 (the AWS maximum per batch call). This significantly reduces network round-trips and lowers consumed Write Request Units (WRUs) compared to individual `put_item` calls for each row.
+
+**Memory-Efficient Streaming** — `s3.get_object()` streams the file body rather than downloading it to Lambda's ephemeral `/tmp` disk. This allows processing of very large CSVs (tens of thousands of rows) within Lambda's memory constraints.
+
+**Scalability** — AWS Lambda automatically provisions additional concurrent instances if multiple admins upload CSVs simultaneously, ensuring zero interference with the live storefront APIs.
+
+**Dead-Letter Queue** — The Lambda is configured with an AWS SQS DLQ. If a CSV is malformed or a transient database error occurs, the failed event is captured for safe developer inspection and replay without data loss.
+
+---
+
+### Asynchronous Payment Status Orchestrator
+
+#### What It Does
+
+Bridges the gap between external payment gateways (Stripe, Razorpay, PayPal) and the internal Orders database. When a customer completes payment on the checkout frontend, this service atomically updates the corresponding order status from `PENDING_PAYMENT` to `PAID`, immediately unlocking the order for warehouse fulfillment.
+
+#### Trigger
+
+A `PaymentSuccessEvent` message published to **Amazon SNS** or **Amazon EventBridge** by the payment gateway (or by the Payment Service webhook handler). The event broker routes it to this Lambda function asynchronously.
+
+#### Technical Workflow
+
+```
+1. Customer completes payment on checkout UI
+        │
+        ▼ Payment Gateway fires webhook / SNS message
+2. PaymentSuccessLambda is invoked
+   Payload contains: { order_id, transaction_id, amount_paid, payment_method }
+        │
+        ▼ boto3: Orders DynamoDB Table lookup by order_id
+3. Verify: order exists AND status == PENDING_PAYMENT
+        │
+        ▼ DynamoDB update_item with ConditionExpression
+4. Atomic update:
+   - status        → PAID
+   - transaction_id → <gateway tx id>
+   - updated_at    → now (UTC)
+        │
+        ├── Success → return { status: "SUCCESS", order: <updated attributes> }
+        └── ConditionalCheckFailedException
+            → Order already PAID or doesn't exist
+            → return { status: "IGNORED" }  ← idempotency guard
+```
+
+#### Lambda Handler (Pattern)
+
+```python
+import boto3
+from datetime import datetime, timezone
+
+dynamodb = boto3.resource('dynamodb')
+order_table = dynamodb.Table('Orders')
+
+def lambda_handler(event, context):
+    # 1. Parse event payload (EventBridge structure)
+    payload = event['detail']
+    order_id = payload['order_id']
+    transaction_id = payload['transaction_id']
+
+    try:
+        # 2. Atomic conditional update — only transitions PENDING_PAYMENT → PAID
+        response = order_table.update_item(
+            Key={'order_id': order_id},
+            UpdateExpression="SET #stat = :paid, transaction_id = :tx, updated_at = :now",
+            ConditionExpression="attribute_exists(order_id) AND #stat = :pending",
+            ExpressionAttributeNames={
+                '#stat': 'status'   # 'status' is a reserved keyword in DynamoDB
+            },
+            ExpressionAttributeValues={
+                ':paid':    'PAID',
+                ':tx':      transaction_id,
+                ':now':     datetime.now(timezone.utc).isoformat(),
+                ':pending': 'PENDING_PAYMENT'
+            },
+            ReturnValues="ALL_NEW"
+        )
+        return {"status": "SUCCESS", "order": response['Attributes']}
+
+    except dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
+        # Order is already PAID or does not exist — safe to ignore
+        return {"status": "IGNORED", "message": "Idempotent check failed or order invalid."}
+```
+
+#### Engineering Highlights
+
+**Atomic Conditional Update** — Instead of a read-modify-write cycle (fetch order → update in Python → write back), the Lambda uses a single DynamoDB `update_item` with `ConditionExpression`. This is atomic at the database level, meaning no race condition can occur even if two Lambda instances process events concurrently.
+
+**Idempotency** — Payment gateways may fire the same success event more than once due to network retries. The `ConditionExpression` (`status = :pending`) ensures the database is only mutated once. Any subsequent duplicate events return `IGNORED` without touching the database.
+
+**Reserved Keyword Handling** — `status` is a DynamoDB reserved word. The handler uses `ExpressionAttributeNames` (`#stat`) to safely alias it, preventing runtime expression parse errors.
+
+**Dead-Letter Queue** — Failed Lambda invocations (e.g., due to a transient DynamoDB outage) are automatically captured in an SQS DLQ for safe developer replay, ensuring no payment event is silently dropped.
 
 ---
 
 ## Inter-Service Communication
 
-All inter-service calls are synchronous HTTP using the `requests` library with a 5-second timeout.
+All REST inter-service calls are synchronous HTTP using the `requests` library with a 5-second timeout. Lambda functions write directly to DynamoDB via Boto3.
+
+### REST ↔ REST Calls
 
 | Caller | Called Service | Trigger | Endpoint |
 |---|---|---|---|
@@ -626,16 +888,26 @@ All inter-service calls are synchronous HTTP using the `requests` library with a
 | Cart Service | Product Service | Add item to cart | `GET /api/v1/products/{id}` (fetch name & price) |
 | Order Service | Cart Service | Checkout | `GET /api/v1/cart/` |
 | Order Service | Inventory Service | Checkout | `POST /api/v1/inventory/reserve` |
-| Order Service | Inventory Service | Ship/Complete | `POST /api/v1/inventory/deduct` |
+| Order Service | Inventory Service | Ship / Complete | `POST /api/v1/inventory/deduct` |
 | Order Service | Inventory Service | Cancel | `POST /api/v1/inventory/release` |
 | Order Service | Cart Service | After order creation | `DELETE /api/v1/cart/` |
 
+### Lambda → DynamoDB / REST Calls
+
+| Lambda | Action | Target |
+|---|---|---|
+| `BulkProductImportLambda` | Batch write products | `Products` DynamoDB Table |
+| `BulkProductImportLambda` | Initialize stock to 0 | Inventory Service `POST /initialize` |
+| `BulkProductImportLambda` | Index new products | Search Service `POST /index` |
+| `PaymentSuccessLambda` | Atomic status update | `Orders` DynamoDB Table |
+
 ### Resilience Strategy
 
-- All inter-service calls are wrapped in `try/except` blocks.
 - Product creation does **not** fail if Inventory or Search services are unavailable (fire-and-forget).
-- Cart operations fail gracefully if Inventory is down (logs a warning and proceeds).
-- Order creation fails explicitly if Cart or Inventory services are unreachable (`DatabaseError → 500`).
+- Cart operations fail gracefully if Inventory is unreachable (logs a warning and proceeds).
+- Order creation fails explicitly if Cart or Inventory are unreachable (`DatabaseError → 500`).
+- Lambda functions are backed by **SQS Dead-Letter Queues** — failed events are never silently dropped.
+- `PaymentSuccessLambda` is idempotent — duplicate events from the payment gateway are safely no-ops.
 
 ---
 
@@ -680,8 +952,10 @@ All inter-service calls are synchronous HTTP using the `requests` library with a
 | `userId` | String | **GSI: `UserIdIndex` (PK)** |
 | `items` | List | — |
 | `totalAmount` | Number (Decimal) | — |
-| `status` | String | — |
+| `status` | String | — (mutated atomically by `PaymentSuccessLambda`) |
+| `transaction_id` | String | — (written by `PaymentSuccessLambda`) |
 | `createdAt` | String (ISO 8601) | — |
+| `updatedAt` | String (ISO 8601) | — |
 
 ### `Payments` Table
 
@@ -708,6 +982,8 @@ All inter-service calls are synchronous HTTP using the `requests` library with a
 
 ## Error Handling
 
+### REST Services
+
 Each service uses a custom exception hierarchy that maps to standard HTTP status codes:
 
 ```python
@@ -726,6 +1002,15 @@ All exceptions are caught by a global FastAPI `exception_handler` and returned i
 
 Pydantic `RequestValidationError` is also caught globally and returns `422 Unprocessable Entity`.
 
+### Lambda Functions
+
+| Scenario | Handling |
+|---|---|
+| Malformed CSV / missing columns | Row is skipped; logged to CloudWatch |
+| DynamoDB transient error | Lambda retries automatically; after max retries, event goes to SQS DLQ |
+| Duplicate payment event | `ConditionalCheckFailedException` caught; returns `IGNORED` (idempotent no-op) |
+| Order not found in Orders table | `ConditionalCheckFailedException` caught; returns `IGNORED` |
+
 ---
 
 ## Getting Started
@@ -733,7 +1018,8 @@ Pydantic `RequestValidationError` is also caught globally and returns `422 Unpro
 ### Prerequisites
 
 - Python 3.10+
-- AWS account with DynamoDB access (or AWS CLI configured locally)
+- AWS account with DynamoDB, S3, Lambda, SNS/EventBridge access
+- AWS CLI configured (`aws configure`)
 - `pip` package manager
 
 ### Installation
@@ -744,13 +1030,13 @@ Pydantic `RequestValidationError` is also caught globally and returns `422 Unpro
    cd E-Commerce
    ```
 
-2. Create and activate a virtual environment for each service (or a shared one):
+2. Create and activate a virtual environment:
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. Install dependencies (each service uses the same core stack):
+3. Install dependencies:
    ```bash
    pip install fastapi uvicorn boto3 requests pydantic
    ```
@@ -763,7 +1049,7 @@ Pydantic `RequestValidationError` is also caught globally and returns `422 Unpro
 
 ### Provision DynamoDB Tables
 
-Run the `setup_dynamo.py` script inside each service directory. These are one-time setup scripts:
+Run the `setup_dynamo.py` script for each service. These are one-time setup scripts:
 
 ```bash
 python product-service/setup_dynamo.py
@@ -774,37 +1060,48 @@ python payment-service/setup_dynamo.py    # Creates Payments table with OrderIdI
 python search-service/setup_dynamo.py
 ```
 
+### Deploy Lambda Functions
+
+1. Package each Lambda handler and its dependencies into a `.zip` file.
+2. Upload to AWS Lambda via the AWS Console or AWS CLI:
+   ```bash
+   zip bulk_import.zip lambdas/bulk_product_import/handler.py
+   aws lambda update-function-code \
+     --function-name BulkProductImportLambda \
+     --zip-file fileb://bulk_import.zip
+   ```
+3. Configure triggers in AWS Console:
+   - **BulkProductImportLambda** → S3 bucket → Event type: `ObjectCreated:Put`
+   - **PaymentSuccessLambda** → SNS Topic or EventBridge Rule → Event pattern: payment success
+4. Attach an SQS Dead-Letter Queue to each Lambda under **Configuration → Asynchronous invocation**.
+
 ---
 
 ## Running the Services
 
-Each service must be started separately. Open a separate terminal for each:
+Each REST service must be started separately. Open a separate terminal for each:
 
 ```bash
 # Terminal 1 — Product Service (port 8000)
-cd product-service/src
-python main.py
+cd product-service/src && python main.py
 
 # Terminal 2 — Inventory Service (port 8001)
-cd inventory-service/src
-python main.py
+cd inventory-service/src && python main.py
 
 # Terminal 3 — Cart Service (port 8002)
-cd cart-service/src
-python main.py
+cd cart-service/src && python main.py
 
 # Terminal 4 — Payment Service (port 8003)
-cd payment-service/src
-python main.py
+cd payment-service/src && python main.py
 
 # Terminal 5 — Order Service (port 8004)
-cd order-service/src
-python main.py
+cd order-service/src && python main.py
 
 # Terminal 6 — Search Service (port 8005)
-cd search-service/src
-python main.py
+cd search-service/src && python main.py
 ```
+
+> **Lambda functions** do not need to be started manually — they run on AWS and are triggered automatically by S3 / SNS / EventBridge events.
 
 ### Interactive API Docs
 
@@ -824,7 +1121,7 @@ Once a service is running, visit its auto-generated Swagger UI:
 ## Design Patterns
 
 ### Clean / Layered Architecture
-Each service is structured as `Controller → Service → Repository → DynamoDB`. Business logic lives exclusively in the service layer; the controller only handles HTTP concerns; the repository only handles database I/O.
+Each REST service is structured as `Controller → Service → Repository → DynamoDB`. Business logic lives exclusively in the service layer; the controller only handles HTTP concerns; the repository only handles database I/O.
 
 ### Repository Pattern
 All DynamoDB interactions are abstracted behind repository classes (`DynamoDB*Repository`). Domain models (dataclasses) are decoupled from the storage format via `_to_item()` and `_to_entity()` mapper methods.
@@ -833,33 +1130,44 @@ All DynamoDB interactions are abstracted behind repository classes (`DynamoDB*Re
 Pydantic models separate the external API contract (`*DTO`) from internal domain entities (`*` dataclasses), providing automatic validation, serialization, and OpenAPI schema generation.
 
 ### Soft Delete
-Products are never physically removed from DynamoDB. Instead, an `is_deleted` flag is set to `True`. All read queries filter out deleted records at the repository layer.
+Products are never physically removed from DynamoDB. An `is_deleted` flag is set to `True`, and all read queries filter out deleted records at the repository layer.
 
 ### Atomic Inventory Updates
-The Inventory Service uses DynamoDB's `UpdateExpression` with `ConditionExpression` to perform **atomic, race-condition-safe** stock operations. This prevents overselling without requiring distributed locks.
+The Inventory Service uses DynamoDB's `UpdateExpression` with `ConditionExpression` to perform **atomic, race-condition-safe** stock operations, preventing overselling without requiring distributed locks.
 
 ### TTL-based Cart Expiry
-Shopping carts automatically expire after 7 days using DynamoDB's native **Time-To-Live (TTL)** feature, eliminating the need for a cleanup job.
+Shopping carts automatically expire after 7 days using DynamoDB's native **Time-To-Live (TTL)** feature, eliminating the need for a scheduled cleanup job.
 
 ### Fire-and-Forget Side Effects
-When a product is created, initialization of inventory and search indexing are best-effort. A failure in a downstream service does not roll back the product creation, keeping the Product Service resilient.
+When a product is created, inventory initialization and search indexing are best-effort. A downstream service failure does not roll back product creation, keeping the Product Service resilient.
 
 ### Saga Pattern (Partial)
-The Order Service implements a partial Saga: it reserves inventory for all items before committing the order. On cancellation, it releases inventory back. A full compensating transaction (rolling back partial reservations mid-checkout) is noted in the code as a future improvement.
+The Order Service implements a partial Saga: it reserves inventory for all items before committing the order, and releases inventory on cancellation. Full compensating rollback for mid-checkout partial reservations is a noted future improvement.
+
+### Event-Driven Decoupling
+The Bulk Import Lambda and Payment Lambda operate completely outside the HTTP request cycle. They react to native AWS infrastructure events (S3 file uploads, SNS/EventBridge messages), ensuring that heavy background operations never degrade the latency of user-facing REST APIs.
+
+### Idempotent Event Processing
+The `PaymentSuccessLambda` uses a DynamoDB `ConditionExpression` to guarantee that a payment event — even if delivered multiple times by the gateway — is processed exactly once. This is a standard pattern for safe event-driven systems.
+
+### Cost-Optimized Batch Writes
+The `BulkProductImportLambda` uses DynamoDB's `batch_writer()` to bundle writes into groups of 25 (the DynamoDB maximum), reducing network calls and Write Request Unit consumption during large catalog imports.
 
 ---
 
 ## Future Improvements
 
-- **API Gateway / Reverse Proxy** — Unify all services behind a single entry point (e.g., AWS API Gateway, Nginx, or Kong) to handle routing, auth, and rate limiting.
-- **Message Queue** — Replace synchronous inter-service calls with an event-driven approach (e.g., AWS SQS/SNS) for better decoupling and resilience.
-- **Full-text Search Engine** — Replace the DynamoDB `Scan` approach in the Search Service with OpenSearch or Elasticsearch for scalable, relevance-ranked search.
-- **Authentication & Authorization** — Implement JWT-based auth and replace the `X-User-Id` header with a proper token validation middleware.
-- **Containerization** — Wrap each service in a Docker container and orchestrate with Docker Compose or Kubernetes.
-- **Distributed Tracing** — Add correlation IDs and integrate with AWS X-Ray or OpenTelemetry for end-to-end request tracing across services.
+- **API Gateway / Reverse Proxy** — Unify all REST services behind a single entry point (AWS API Gateway, Nginx, or Kong) for routing, auth, and rate limiting.
+- **Full Event-Driven Migration** — Replace synchronous REST inter-service calls with SNS/SQS messages for better resilience and decoupling across all services.
+- **Full-text Search Engine** — Replace the DynamoDB `Scan` in the Search Service with OpenSearch or Elasticsearch for scalable, relevance-ranked results.
+- **Authentication & Authorization** — Implement JWT-based auth and replace the `X-User-Id` header with proper token validation middleware.
+- **Containerization** — Wrap each REST service in a Docker container and orchestrate with Docker Compose or Kubernetes.
+- **Distributed Tracing** — Add correlation IDs and integrate with AWS X-Ray or OpenTelemetry for end-to-end tracing across REST services and Lambda functions.
 - **Full Saga Compensation** — Implement rollback logic for partial inventory reservations during a failed checkout.
-- **Webhook Security** — Add signature verification (e.g., Stripe webhook signature) before processing payment webhook events.
+- **Webhook Security** — Add signature verification (e.g., Stripe webhook HMAC signature) before processing payment events.
+- **CSV Validation Layer** — Add a pre-processing step to `BulkProductImportLambda` that validates all rows before writing any to DynamoDB, enabling atomic all-or-nothing batch imports.
+- **GSI on `providerTxId`** — Add a Global Secondary Index on the `Payments` table's `providerTxId` column to replace the current full-table `Scan` used in webhook lookups.
 
 ---
 
-*Built with FastAPI · AWS DynamoDB · Python 3*
+*Built with FastAPI · AWS Lambda · AWS DynamoDB · Amazon S3 · Amazon SNS / EventBridge · Python 3*
