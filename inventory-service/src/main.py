@@ -29,7 +29,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled error: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=500, content={"success": False, "error": "Internal Server Error"})
 
-handler = Mangum(app)
+asgi_handler = Mangum(app)
 
 def handler(event, context):
     """
@@ -51,7 +51,7 @@ def handler(event, context):
         return {"status": "SUCCESS", "message": "SQS records processed cleanly."}
     
     # Otherwise, treat it as a normal web HTTP request!
-    return handler(event, context)
+    return asgi_handler(event, context)
 
 if __name__ == "__main__":
     uvicorn.run("src.main:app", host="127.0.0.1", port=8001, reload=True)

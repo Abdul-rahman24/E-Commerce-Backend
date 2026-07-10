@@ -28,7 +28,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled error: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=500, content={"success": False, "error": "Internal Server Error"})
-handler = Mangum(app)
+
+asgi_handler = Mangum(app)
+
 def handler(event, context):
     """Universal Router for Cart Service: Handles both HTTP APIs and SQS Background Events"""
     if "Records" in event and "eventSource" in event["Records"][0] and event["Records"][0]["eventSource"] == "aws:sqs":
@@ -42,7 +44,7 @@ def handler(event, context):
             
         return {"status": "SUCCESS", "message": "Cart cleared via SQS event."}
     
-    return handler(event, context)
+    return asgi_handler(event, context)
 
 if __name__ == "__main__":
     uvicorn.run("src.main:app", host="127.0.0.1", port=8002, reload=True)
