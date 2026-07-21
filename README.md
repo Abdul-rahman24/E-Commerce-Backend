@@ -726,44 +726,7 @@ An `ObjectCreated:Put` event fires automatically when a `.csv` file is uploaded 
         └──► Search Service:    POST /index (product indexed)
 ```
 
-#### Lambda Handler (Pattern)
 
-```python
-import csv
-import uuid
-import codecs
-import boto3
-from datetime import datetime, timezone
-
-s3_client = boto3.client('s3')
-dynamodb = boto3.resource('dynamodb')
-table = dynamodb.Table('Products')
-
-def lambda_handler(event, context):
-    # 1. Extract Bucket and Key from S3 event
-    record = event['Records'][0]
-    bucket_name = record['s3']['bucket']['name']
-    file_key = record['s3']['object']['key']
-
-    # 2. Stream and decode CSV directly from S3
-    response = s3_client.get_object(Bucket=bucket_name, Key=file_key)
-    csv_reader = csv.DictReader(codecs.getreader('utf-8')(response['Body']))
-
-    # 3. Batch write to DynamoDB (25 items per batch = max DynamoDB allows)
-    with table.batch_writer() as batch:
-        for row in csv_reader:
-            product_item = {
-                'product_id': str(uuid.uuid4()),
-                'sku': row['sku'],
-                'name': row['name'],
-                'price': float(row['price']),
-                'status': 'ACTIVE',
-                'created_at': datetime.now(timezone.utc).isoformat()
-            }
-            batch.put_item(Item=product_item)
-
-    return {"status": "Success", "message": f"Processed {file_key}"}
-```
 
 #### Required CSV Format
 
@@ -822,44 +785,6 @@ A `PaymentSuccessEvent` message published to **Amazon SNS** or **Amazon EventBri
             → return { status: "IGNORED" }  ← idempotency guard
 ```
 
-#### Lambda Handler (Pattern)
-
-```python
-import boto3
-from datetime import datetime, timezone
-
-dynamodb = boto3.resource('dynamodb')
-order_table = dynamodb.Table('Orders')
-
-def lambda_handler(event, context):
-    # 1. Parse event payload (EventBridge structure)
-    payload = event['detail']
-    order_id = payload['order_id']
-    transaction_id = payload['transaction_id']
-
-    try:
-        # 2. Atomic conditional update — only transitions PENDING_PAYMENT → PAID
-        response = order_table.update_item(
-            Key={'order_id': order_id},
-            UpdateExpression="SET #stat = :paid, transaction_id = :tx, updated_at = :now",
-            ConditionExpression="attribute_exists(order_id) AND #stat = :pending",
-            ExpressionAttributeNames={
-                '#stat': 'status'   # 'status' is a reserved keyword in DynamoDB
-            },
-            ExpressionAttributeValues={
-                ':paid':    'PAID',
-                ':tx':      transaction_id,
-                ':now':     datetime.now(timezone.utc).isoformat(),
-                ':pending': 'PENDING_PAYMENT'
-            },
-            ReturnValues="ALL_NEW"
-        )
-        return {"status": "SUCCESS", "order": response['Attributes']}
-
-    except dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
-        # Order is already PAID or does not exist — safe to ignore
-        return {"status": "IGNORED", "message": "Idempotent check failed or order invalid."}
-```
 
 #### Engineering Highlights
 
