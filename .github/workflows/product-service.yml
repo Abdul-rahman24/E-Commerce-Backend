@@ -16,64 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # 💡 FIX: Updated to v4 to resolve Node.js deprecation warning
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 
-
-      # 💡 FIX: Updated to v5 to resolve Node.js deprecation warning
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9' 
-
-      - name: Install Dependencies
-        working-directory: ./product-service
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov 
-
-      - name: Run Pytest and Generate Coverage Report
-        working-directory: ./product-service
-        # Added PYTHONPATH so pytest knows where your 'src' folder is
-        run: |
-          PYTHONPATH=. pytest tests/ --cov=src --cov-report=xml
-
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}   
-        with:
-          projectBaseDir: product-service
-
-      - name: Run Pytest and Generate Coverage Report
-        working-directory: ./product-service
-        # 💡 FIX: Provide fake URLs so the GitHub server doesn't crash when reading product_service.py
-        env:
-          INVENTORY_SERVICE_URL: "http://mock-inventory-service"
-          SEARCH_SERVICE_URL: "http://mock-search-service"
-        run: |
-          PYTHONPATH=. pytest tests/ --cov=src --cov-report=xml  name: Product Service CI/CD
-
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'product-service/**'
-  pull_request:
-    paths:
-      - 'product-service/**'
-
-jobs:
-  build-and-test:
-    name: Build, Test, and Sonar Scan
-    runs-on: ubuntu-latest
-    
-    steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
@@ -93,7 +35,6 @@ jobs:
 
       - name: Run Pytest and Generate Coverage Report
         working-directory: ./product-service
-        # This is the ONLY pytest step we need, injected with the mock URLs
         env:
           INVENTORY_SERVICE_URL: "http://mock-inventory-service"
           SEARCH_SERVICE_URL: "http://mock-search-service"
