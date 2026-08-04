@@ -56,4 +56,4 @@ jobs:
           INVENTORY_SERVICE_URL: "http://mock-inventory-service"
           SEARCH_SERVICE_URL: "http://mock-search-service"
         run: |
-          PYTHONPATH=. pytest tests/ --cov=src --cov-report=xml
+          PYTHONPATH=. pytest tests/ --cov=src --cov-report=xml  
