@@ -113,7 +113,9 @@ class ProductService:
         return self.repository.update(product)
 
     def delete_product(self, product_id: str) -> None:
-        product = self.get_product(product_id)
-        product.is_deleted = True
-        product.updated_at = datetime.now(timezone.utc)
-        self.repository.update(product)
+        # First, verify the product exists (throws NotFoundError if missing)
+        self.get_product(product_id)
+        
+        # Execute the permanent database deletion
+        self.repository.delete(product_id)
+        logger.info(f"Permanently purged product {product_id} from catalog.")
