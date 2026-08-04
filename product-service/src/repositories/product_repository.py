@@ -88,4 +88,4 @@ class DynamoDBProductRepository:
             logger.info(f"Successfully deleted product from DB", extra={"productId": product_id})
         except ClientError as e:
             logger.error(f"DynamoDB ClientError: {str(e)}", extra={"productId": product_id})
-            raise DatabaseError("Failed to permanently delete product from database")
+            raise DatabaseError("Failed to permanently delete product from database")  
