@@ -4,7 +4,7 @@ session = boto3.Session(
     profile_name="idp-sbx-trn-lab-01",
     region_name="ap-southeast-1"
 )
-
+ 
 dynamodb = session.client("dynamodb")
 
 response = dynamodb.create_table(
