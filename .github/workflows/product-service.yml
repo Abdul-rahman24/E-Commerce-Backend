@@ -41,14 +41,13 @@ jobs:
         run: |
           PYTHONPATH=. pytest tests/ --cov=src --cov-report=xml
 
-      # 💡 FIX: Updated to the new, required SonarQube action
+      # 💡 FIX: Upgraded to v6 to patch the security vulnerability
       - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v4
+        uses: SonarSource/sonarqube-scan-action@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}   
         with:
           projectBaseDir: product-service
-          # 💡 FIX: Explicitly tell Sonar where to find the test results
           args: >
             -Dsonar.python.coverage.reportPaths=coverage.xml
