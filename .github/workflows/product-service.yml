@@ -48,3 +48,12 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}   
         with:
           projectBaseDir: product-service
+
+      - name: Run Pytest and Generate Coverage Report
+        working-directory: ./product-service
+        # 💡 FIX: Provide fake URLs so the GitHub server doesn't crash when reading product_service.py
+        env:
+          INVENTORY_SERVICE_URL: "http://mock-inventory-service"
+          SEARCH_SERVICE_URL: "http://mock-search-service"
+        run: |
+          PYTHONPATH=. pytest tests/ --cov=src --cov-report=xml
