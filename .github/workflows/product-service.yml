@@ -1,0 +1,49 @@
+name: Product Service CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'product-service/**' # Triggers ONLY when product-service code changes
+  pull_request:
+    paths:
+      - 'product-service/**'
+
+jobs:
+  build-and-test:
+    name: Build, Test, and Sonar Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required for SonarCloud to analyze git history properly
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9' # Adjust if you are using 3.10 or 3.11
+
+      - name: Install Dependencies
+        working-directory: ./product-service
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Install testing libraries
+          pip install pytest pytest-cov 
+
+      - name: Run Pytest and Generate Coverage Report
+        working-directory: ./product-service
+        # This runs the tests and generates the coverage.xml file Sonar needs
+        run: |
+          pytest tests/ --cov=src --cov-report=xml
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Provided automatically by GitHub
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}   # The secret you added earlier
+        with:
+          projectBaseDir: product-service
