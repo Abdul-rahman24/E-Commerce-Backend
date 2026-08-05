@@ -9,8 +9,8 @@ terraform {
 }
 
 provider "aws" {
-  region  = var.aws_region
-  profile = "idp-sbx-trn-lab-01"
+  region = "ap-southeast-1"
+}
 
   # This automatically applies these tags to EVERY resource
   default_tags {
