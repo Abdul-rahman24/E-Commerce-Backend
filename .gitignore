@@ -1,17 +1,5 @@
-# Security: NEVER track environment variables
-.env
-
-# Build and Deployment artifacts
-package/
-deployment.zip
-*.zip
-
-# Python cache files
-__pycache__/
-*.pyc
-.pytest_cache/
-
 # Local .terraform directories
+
 **/.terraform/*
 
 # .tfstate files
@@ -31,4 +19,3 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
-
