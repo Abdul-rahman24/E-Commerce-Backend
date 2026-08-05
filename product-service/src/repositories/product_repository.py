@@ -54,7 +54,7 @@ class DynamoDBProductRepository:
     def create(self, product: Product) -> Product:
         try:
             self.table.put_item(Item=self._to_item(product))
-            logger.info(f"Successfully created product in DB", extra={"productId": product.product_id})
+            logger.info("Successfully created product in DB", extra={"productId": product.product_id})
             return product
         except ClientError as e:
             logger.error(f"DynamoDB ClientError: {str(e)}", extra={"productId": product.product_id})
@@ -85,7 +85,7 @@ class DynamoDBProductRepository:
         """Permanently removes the product record from DynamoDB."""
         try:
             self.table.delete_item(Key={'productId': product_id})
-            logger.info(f"Successfully deleted product from DB", extra={"productId": product_id})
+            logger.info("Successfully deleted product from DB", extra={"productId": product_id})
         except ClientError as e:
             logger.error(f"DynamoDB ClientError: {str(e)}", extra={"productId": product_id})
             raise DatabaseError("Failed to permanently delete product from database")      
