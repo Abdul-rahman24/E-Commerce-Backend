@@ -10,9 +10,7 @@ terraform {
 
 provider "aws" {
   region = "ap-southeast-1"
-}
 
-  # This automatically applies these tags to EVERY resource
   default_tags {
     tags = {
       CostCentre         = "YourCostCentreID"

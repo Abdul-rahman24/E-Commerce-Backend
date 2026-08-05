@@ -80,7 +80,7 @@ class DynamoDBProductRepository:
     def update(self, product: Product) -> Product:
         self.table.put_item(Item=self._to_item(product))
         return product
-#comments---
+#comments----
     def delete(self, product_id: str) -> None:
         """Permanently removes the product record from DynamoDB."""
         try:
