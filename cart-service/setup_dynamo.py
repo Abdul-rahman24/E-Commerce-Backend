@@ -1,6 +1,6 @@
 import boto3
 import time
-
+  
 def setup_cart_table():
     print("Connecting to AWS via company profile...")
     # 1. Use the company session
