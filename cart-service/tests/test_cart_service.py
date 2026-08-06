@@ -18,8 +18,7 @@ class TestCartService(unittest.TestCase):
     def setUp(self):
         self.mock_repo = MagicMock()
         
-        # FIX: Tell the mock to return the exact cart object it receives, 
-        # mimicking the real repository's behavior.
+        # Mock save_cart to return the exact entity it receives to prevent Pydantic Validation errors
         self.mock_repo.save_cart.side_effect = lambda cart: cart
         
         self.service = CartService(self.mock_repo)
@@ -39,14 +38,12 @@ class TestCartService(unittest.TestCase):
 
     @patch('src.services.cart_service.urllib.request.urlopen')
     def test_add_item_success(self, mock_urlopen):
-        # Mocking the two sequential API calls (Inventory, then Product)
         mock_inv_response = MagicMock()
         mock_inv_response.read.return_value = json.dumps({"data": {"available_quantity": 100}}).encode("utf-8")
         
         mock_prod_response = MagicMock()
         mock_prod_response.read.return_value = json.dumps({"data": {"name": "Test", "price": 15.0}}).encode("utf-8")
         
-        # Return inventory response first, then product response
         mock_urlopen.return_value.__enter__.side_effect = [mock_inv_response, mock_prod_response]
         
         self.mock_repo.get_cart.return_value = Cart(user_id="u1")
@@ -88,8 +85,13 @@ class TestCartService(unittest.TestCase):
 
     def test_update_item_not_found(self):
         self.mock_repo.get_cart.return_value = None
+        
+        # FIX FOR SONARCLOUD python:S5778
+        # Create DTO outside the assertRaises block so there is only one invocation inside
+        dto = UpdateCartItemDTO(quantity=5) 
+        
         with self.assertRaises(NotFoundError):
-            self.service.update_item("u1", "p1", UpdateCartItemDTO(quantity=5))
+            self.service.update_item("u1", "p1", dto)
 
     def test_clear_cart(self):
         self.service.clear_cart("u1")
