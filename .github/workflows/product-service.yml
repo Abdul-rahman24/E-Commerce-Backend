@@ -90,6 +90,11 @@ jobs:
             --function-name Product_Service_abd \
             --zip-file fileb://product-service/payload.zip
 
+      - name: Wait for Lambda Code Update to Complete
+        run: |
+          aws lambda wait function-updated \
+            --function-name Product_Service_abd
+
       - name: Update Lambda Environment Variables
         run: |
           aws lambda update-function-configuration \

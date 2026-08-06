@@ -59,7 +59,7 @@ class DynamoDBProductRepository:
         except ClientError as e:
             logger.error(f"DynamoDB ClientError: {str(e)}", extra={"productId": product.product_id})
             raise DatabaseError("Failed to save product to database")
-
+ 
     def find_by_id(self, product_id: str) -> Optional[Product]:
         try:
             response = self.table.get_item(Key={'productId': product_id})
