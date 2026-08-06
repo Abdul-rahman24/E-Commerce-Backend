@@ -52,7 +52,6 @@ def get_user_orders_by_param(user_id: str, service: OrderService = Depends(get_o
 async def update_order_status(order_id: str, payload: OrderStatusUpdateDTO, x_user_id: str = Header(...)):
     """Update the status of an order after a successful payment handshake."""
     try:
-        # Scan for the order regardless of your exact primary key schema
         response = order_table.scan(
             FilterExpression=Attr('order_id').eq(order_id) | Attr('orderId').eq(order_id)
         )
@@ -62,16 +61,15 @@ async def update_order_status(order_id: str, payload: OrderStatusUpdateDTO, x_us
             raise HTTPException(status_code=404, detail=f"Order {order_id} not found in database")
             
         target_order = items[0]
-        
-        # Modify the status attribute in memory
         target_order['status'] = payload.status
-        
-        # Overwrite the existing DynamoDB record cleanly in place
         order_table.put_item(Item=target_order)
         
         print(f"✅ Order {order_id} status successfully transitioned to: {payload.status}")
         return {"success": True, "message": f"Order {order_id} updated to {payload.status}", "order": target_order}
         
+    except HTTPException:
+        # FIX: explicitly catch and re-raise HTTPExceptions so they don't become 500s
+        raise
     except Exception as e:
         print(f"❌ Error updating order status: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to update order status")

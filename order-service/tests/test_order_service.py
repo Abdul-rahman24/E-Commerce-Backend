@@ -5,20 +5,18 @@ import json
 import urllib.error
 from datetime import datetime, timezone
 
-# Inject test variables before importing the service
-os.environ["CART_SERVICE_URL"] = "http://fake-cart.com"
-os.environ["ORDER_EVENTS_TOPIC_ARN"] = "arn:aws:sns:fake:123"
-
 from src.services.order_service import OrderService
 from src.models.order import Order, OrderItem
 from src.dto.order_dto import OrderStatusUpdateDTO
 from src.exceptions.app_exceptions import NotFoundError, BadRequestError, DatabaseError
 
+# FIX: Patch the module-level variable directly so it doesn't matter what order Pytest loads files
+@patch('src.services.order_service.ORDER_EVENTS_TOPIC_ARN', 'arn:aws:sns:fake:123')
 class TestOrderService(unittest.TestCase):
+    
     @patch('src.services.order_service.boto3.client')
     def setUp(self, mock_boto_client):
         self.mock_repo = MagicMock()
-        # Ensure save returns the exact object to avoid Pydantic validation errors
         self.mock_repo.save.side_effect = lambda order: order
         
         self.mock_sns = MagicMock()
@@ -28,14 +26,13 @@ class TestOrderService(unittest.TestCase):
         
         self.fake_order = Order(
             order_id="ord_123", user_id="u1", 
-            items=[OrderItem("p1", "Item 1", 10.0, 2)],
+            items=[OrderItem(product_id="p1", name="Item 1", price=10.0, quantity=2)],
             total_amount=20.0, currency="USD", status="PENDING_PAYMENT",
             created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc)
         )
 
     @patch('src.services.order_service.urllib.request.urlopen')
     def test_create_order_from_cart_success(self, mock_urlopen):
-        # Mock the Cart Service response
         mock_response = MagicMock()
         cart_payload = {
             "data": {
@@ -49,7 +46,7 @@ class TestOrderService(unittest.TestCase):
         result = self.service.create_order_from_cart("u1")
         
         self.mock_repo.save.assert_called_once()
-        self.mock_sns.publish.assert_called_once()  # SNS event fired
+        self.mock_sns.publish.assert_called_once()
         self.assertEqual(result.total_amount, 20.0)
 
     @patch('src.services.order_service.urllib.request.urlopen')
@@ -69,7 +66,7 @@ class TestOrderService(unittest.TestCase):
         
         self.assertEqual(result.status, "COMPLETED")
         self.mock_repo.save.assert_called_once()
-        self.mock_sns.publish.assert_called_once() # Triggered for COMPLETED status
+        self.mock_sns.publish.assert_called_once()
 
     def test_update_status_not_found(self):
         self.mock_repo.get_by_id.return_value = None
