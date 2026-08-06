@@ -8,7 +8,11 @@ on:
       - '.github/workflows/inventory-service.yml'
 
 jobs:
-  build-test-deploy:
+  # ==========================================
+  # JOB 1: Continuous Integration (Build & Test)
+  # ==========================================
+  continuous-integration:
+    name: Build and Test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -40,6 +44,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }} 
+
+  # ==========================================
+  # JOB 2: Continuous Deployment (AWS Lambda)
+  # ==========================================
+  continuous-deployment:
+    name: Deploy to AWS
+    runs-on: ubuntu-latest
+    # This line forces CD to wait for CI to finish successfully!
+    needs: continuous-integration
+    defaults:
+      run:
+        working-directory: ./inventory-service
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
       - name: Package Lambda Deployment
         run: |

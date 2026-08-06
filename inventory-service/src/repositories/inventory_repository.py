@@ -7,7 +7,7 @@ from src.exceptions.app_exceptions import DatabaseError, ConflictError, NotFound
 from src.utils.logger import get_logger
 
 logger = get_logger("InventoryRepository")
-
+ 
 class DynamoDBInventoryRepository:
     def __init__(self):
         # Fetch region dynamically to avoid hardcoded vulnerabilities
