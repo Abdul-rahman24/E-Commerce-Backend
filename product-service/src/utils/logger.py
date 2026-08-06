@@ -1,7 +1,7 @@
 import logging
 from pythonjsonlogger import jsonlogger
 import sys
-
+  
 def get_logger(name: str):
     logger = logging.getLogger(name)
     
