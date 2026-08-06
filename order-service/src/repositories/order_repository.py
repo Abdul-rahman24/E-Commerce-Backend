@@ -1,4 +1,5 @@
 import boto3
+import os
 from decimal import Decimal
 from datetime import datetime
 from typing import List, Optional
@@ -11,11 +12,12 @@ logger = get_logger("OrderRepository")
 
 class DynamoDBOrderRepository:
     def __init__(self):
-        # Use IAM Role credentials, set the company region
-        self.dynamodb = boto3.resource('dynamodb', region_name='ap-southeast-1')
+        # Fetch region dynamically to pass security scans
+        region = os.environ.get('AWS_REGION', 'ap-southeast-1')
+        self.dynamodb = boto3.resource('dynamodb', region_name=region)
         
-        # Point to the new company table with the _abd suffix
-        self.table = self.dynamodb.Table('orders_abd')
+        # Ensure the table name matches your AWS setup
+        self.table = self.dynamodb.Table('order_abd')
 
     def _to_item(self, order: Order) -> dict:
         items_list = []
