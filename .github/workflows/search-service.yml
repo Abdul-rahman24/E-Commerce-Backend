@@ -61,14 +61,12 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Package search Service Lambda
-        working-directory: ./search-service
+      - name: Package Lambda Deployment
         run: |
-          pip install --target ./package -r requirements.txt mangum
+          pip install -t package -r requirements.txt
+          cp -r src package/
           cd package
-          zip -r ../payload.zip .
-          cd ..
-          zip -g payload.zip -r src/
+          zip -r ../deployment.zip .
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -82,7 +80,7 @@ jobs:
         run: |
           aws lambda update-function-code \
             --function-name Search_Service_abd \
-            --zip-file fileb://payload.zip
+            --zip-file fileb://deployment.zip
 
       - name: Wait for Lambda Code Update to Complete
         run: |

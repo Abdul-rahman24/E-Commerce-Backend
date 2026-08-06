@@ -1,5 +1,5 @@
 import boto3
- 
+   
 def setup_order_table():
     print("Connecting to AWS via company profile...")
     # 1. Use the company session
