@@ -1,3 +1,4 @@
+import os
 import boto3
 import time
 from decimal import Decimal
@@ -12,7 +13,9 @@ logger = get_logger("CartRepository")
 
 class DynamoDBCartRepository:
     def __init__(self):
-        self.dynamodb = boto3.resource('dynamodb', region_name='ap-southeast-1')
+        # FIX: Removed hardcoded region. Now fetches dynamically from the environment.
+        region = os.environ.get('AWS_REGION', 'ap-southeast-1')
+        self.dynamodb = boto3.resource('dynamodb', region_name=region)
         
         # Point to the new company table with the _abd suffix
         self.table = self.dynamodb.Table('cart_abd')
@@ -59,7 +62,6 @@ class DynamoDBCartRepository:
             if not item:
                 return None
                 
-            # Check if TTL has technically passed but AWS hasn't swept it yet
             if int(item.get('expiresAt', 0)) < int(time.time()):
                 return None
                 
