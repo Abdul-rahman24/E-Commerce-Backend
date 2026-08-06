@@ -1,6 +1,11 @@
 import unittest
 import urllib.error
+import os
 from unittest.mock import MagicMock, patch
+
+# FIX: Inject a fake URL into the test environment BEFORE importing the service
+os.environ["PRODUCT_SERVICE_URL"] = "http://fake-test-url.com/v1/products"
+
 from src.services.inventory_service import InventoryService
 from src.dto.inventory_dto import InventoryTransactionDTO
 from src.exceptions.app_exceptions import BadRequestError, DatabaseError
