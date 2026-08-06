@@ -57,13 +57,17 @@ class TestInventoryService(unittest.TestCase):
         self.service.handle_sqs_event(payload)
         self.mock_repo.atomic_update.assert_called_once_with("p1", -2, 2)
 
-    def test_handle_sqs_event_order_cancelled(self):
-        payload = {"event_type": "ORDER_CANCELLED", "order_id": "1", "items": [{"product_id": "p1", "quantity": 2}]}
+    def test_handle_sqs_event_order_completed(self):
+        # This increases coverage by testing the third IF branch in your handle_sqs_event logic
+        payload = {"event_type": "ORDER_COMPLETED", "order_id": "1", "items": [{"product_id": "p1", "quantity": 2}]}
         self.service.handle_sqs_event(payload)
-        self.mock_repo.atomic_update.assert_called_once_with("p1", 2, -2)
+        self.mock_repo.atomic_update.assert_called_once_with("p1", 0, -2)
 
     def test_handle_sqs_event_error_raises_exception(self):
-        self.mock_repo.atomic_update.side_effect = Exception("DB Error")
+        # FIX: Use a specific exception (DatabaseError) instead of the generic Exception
+        self.mock_repo.atomic_update.side_effect = DatabaseError("DB Error")
         payload = {"event_type": "ORDER_CREATED", "order_id": "1", "items": [{"product_id": "p1", "quantity": 2}]}
-        with self.assertRaises(Exception):
+        
+        # FIX: Assert the specific DatabaseError is raised to satisfy SonarCloud
+        with self.assertRaises(DatabaseError):
             self.service.handle_sqs_event(payload)
