@@ -1,3 +1,4 @@
+import os
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, timezone
@@ -9,10 +10,9 @@ logger = get_logger("InventoryRepository")
 
 class DynamoDBInventoryRepository:
     def __init__(self):
-        # Use IAM Role credentials, set the company region
-        self.dynamodb = boto3.resource('dynamodb', region_name='ap-southeast-1')
-        
-        # Point to the new company table with the _abd suffix
+        # Fetch region dynamically to avoid hardcoded vulnerabilities
+        region = os.environ.get('AWS_REGION', 'ap-southeast-1')
+        self.dynamodb = boto3.resource('dynamodb', region_name=region)
         self.table = self.dynamodb.Table('inventory_abd')
 
     def get_by_product_id(self, product_id: str) -> Inventory:
@@ -36,7 +36,6 @@ class DynamoDBInventoryRepository:
         try:
             now = datetime.now(timezone.utc).isoformat()
             
-            # If we are subtracting available quantity, ensure we don't go below 0
             condition_expr = "attribute_exists(productId)"
             if available_delta < 0:
                 condition_expr += " AND availableQuantity >= :min_avail"
