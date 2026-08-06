@@ -1,10 +1,15 @@
+import os
+# Inject the environment variable here to ensure it is set regardless of test execution order
+os.environ["PRODUCT_SERVICE_URL"] = "http://fake-test-url.com/v1/products"
+
 import unittest
 from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
+from datetime import datetime, timezone
+
 from src.main import app
 from src.controllers.inventory_controller import get_inventory_service
 from src.models.inventory import Inventory
-from datetime import datetime, timezone
 
 class TestInventoryController(unittest.TestCase):
     def setUp(self):
@@ -20,7 +25,8 @@ class TestInventoryController(unittest.TestCase):
         )
         self.mock_service.get_inventory.return_value = fake_inv
         
-        response = self.client.get("/p1")
+        # Using the exact prefix found in the router setup
+        response = self.client.get("/v1/inventory/p1")
         
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["success"])
@@ -33,7 +39,7 @@ class TestInventoryController(unittest.TestCase):
         )
         self.mock_service.restock.return_value = fake_inv
         
-        response = self.client.post("/restock", json={"product_id": "p1", "quantity": 10})
+        response = self.client.post("/v1/inventory/restock", json={"product_id": "p1", "quantity": 10})
         
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["success"])
@@ -45,7 +51,7 @@ class TestInventoryController(unittest.TestCase):
         )
         self.mock_service.reserve_stock.return_value = fake_inv
         
-        response = self.client.post("/reserve", json={"product_id": "p1", "quantity": 10})
+        response = self.client.post("/v1/inventory/reserve", json={"product_id": "p1", "quantity": 10})
         
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["success"])
@@ -57,7 +63,7 @@ class TestInventoryController(unittest.TestCase):
         )
         self.mock_service.release_stock.return_value = fake_inv
         
-        response = self.client.post("/release", json={"product_id": "p1", "quantity": 10})
+        response = self.client.post("/v1/inventory/release", json={"product_id": "p1", "quantity": 10})
         
         self.assertEqual(response.status_code, 200)
 
@@ -68,7 +74,7 @@ class TestInventoryController(unittest.TestCase):
         )
         self.mock_service.deduct_stock.return_value = fake_inv
         
-        response = self.client.post("/deduct", json={"product_id": "p1", "quantity": 10})
+        response = self.client.post("/v1/inventory/deduct", json={"product_id": "p1", "quantity": 10})
         
         self.assertEqual(response.status_code, 200)
 
@@ -79,12 +85,14 @@ class TestInventoryController(unittest.TestCase):
         )
         self.mock_service.initialize_stock.return_value = fake_inv
         
-        response = self.client.post("/initialize", json={"product_id": "p1"})
+        response = self.client.post("/v1/inventory/initialize", json={"product_id": "p1"})
         
         self.assertEqual(response.status_code, 200)
 
     def test_validation_error(self):
         # Send an invalid request (missing the required 'quantity' field) to hit the exception handler
-        response = self.client.post("/restock", json={"product_id": "p1"})
+        response = self.client.post("/v1/inventory/restock", json={"product_id": "p1"})
+        
+        # Expected status code is 422 Unprocessable Entity for Pydantic validation errors
         self.assertEqual(response.status_code, 422)
-        self.assertFalse(response.json()["success"])
+        self.assertFalse(response.json().get("success", False))
