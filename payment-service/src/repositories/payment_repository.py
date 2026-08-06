@@ -1,3 +1,4 @@
+import os
 import boto3
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -11,8 +12,9 @@ logger = get_logger("PaymentRepository")
 
 class DynamoDBPaymentRepository:
     def __init__(self):
-        # Use IAM Role credentials, set the company region
-        self.dynamodb = boto3.resource('dynamodb', region_name='ap-southeast-1')
+        # FIX: Dynamically fetch region to pass security scans
+        region = os.environ.get('AWS_REGION', 'ap-southeast-1')
+        self.dynamodb = boto3.resource('dynamodb', region_name=region)
         
         # Point to the new company table with the _abd suffix
         self.table = self.dynamodb.Table('payments_abd')
