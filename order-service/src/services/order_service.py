@@ -19,6 +19,8 @@ load_dotenv()
 CART_SERVICE_URL = os.environ.get("CART_SERVICE_URL")
 ORDER_EVENTS_TOPIC_ARN = os.environ.get("ORDER_EVENTS_TOPIC_ARN")
 
+ORDER_NOT_FOUND_MSG = "Order not found"
+
 class OrderService:
     def __init__(self, repository: DynamoDBOrderRepository):
         self.repository = repository
@@ -95,7 +97,7 @@ class OrderService:
     def update_status(self, order_id: str, dto: OrderStatusUpdateDTO) -> OrderResponseDTO:
         order = self.repository.get_by_id(order_id)
         if not order:
-            raise NotFoundError("Order not found")
+            raise NotFoundError(ORDER_NOT_FOUND_MSG)
             
         order.status = dto.status.upper()
         order.updated_at = datetime.now(timezone.utc)
@@ -110,7 +112,7 @@ class OrderService:
     def cancel_order(self, order_id: str) -> OrderResponseDTO:
         order = self.repository.get_by_id(order_id)
         if not order:
-            raise NotFoundError("Order not found")
+            raise NotFoundError(ORDER_NOT_FOUND_MSG)
             
         if order.status in ["SHIPPED", "COMPLETED"]:
             raise BadRequestError("Cannot cancel a shipped or completed order.")
@@ -127,7 +129,7 @@ class OrderService:
     def get_order(self, order_id: str) -> OrderResponseDTO:
         order = self.repository.get_by_id(order_id)
         if not order:
-            raise NotFoundError("Order not found")
+            raise NotFoundError(ORDER_NOT_FOUND_MSG)
         return self._build_response_dto(order)
 
     def get_user_orders(self, user_id: str) -> List[OrderResponseDTO]:

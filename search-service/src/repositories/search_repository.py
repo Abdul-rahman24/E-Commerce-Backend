@@ -58,7 +58,7 @@ class DynamoDBSearchRepository:
                         images=item.get('images', []),
                         search_tags=item.get('searchTags', '')
                     ))
-                     
+                      
             return items
         except ClientError as e:
             logger.error(f"DynamoDB Error: {str(e)}")

@@ -16,7 +16,8 @@ def get_order_service() -> OrderService:
     return OrderService(repo)
 
 # 1. GET ALL ORDERS FOR LOGGED-IN USER
-@router.get("/orders")
+# FIX: Added 500 response documentation
+@router.get("/orders", responses={500: {"description": "Failed to retrieve order history"}})
 async def get_user_orders_by_header(x_user_id: str = Header(...)):
     """Fetch all orders belonging to the authenticated Cognito user."""
     try:
@@ -48,7 +49,11 @@ def get_user_orders_by_param(user_id: str, service: OrderService = Depends(get_o
     return {"success": True, "data": data}
 
 # 💡 5. THE SINGLE, UNIFIED ORDER STATUS UPDATE ROUTE (No Duplicates!)
-@router.patch("/{order_id}/status")
+# FIX: Added 404 and 500 response documentation
+@router.patch("/{order_id}/status", responses={
+    404: {"description": "Order not found in database"},
+    500: {"description": "Failed to update order status"}
+})
 async def update_order_status(order_id: str, payload: OrderStatusUpdateDTO, x_user_id: str = Header(...)):
     """Update the status of an order after a successful payment handshake."""
     try:

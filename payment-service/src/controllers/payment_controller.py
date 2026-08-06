@@ -35,7 +35,8 @@ class SimplePaymentRequest(BaseModel):
     amount: float
     payment_method: str = "CREDIT_CARD"
 
-@router.post("/pay")
+# FIX: Document the 500 error in the responses parameter
+@router.post("/pay", responses={500: {"description": "Payment authorization failed"}})
 def process_direct_payment(payload: SimplePaymentRequest, x_user_id: str = Header(...)):
     """Direct checkout simulation endpoint for frontend modal integration."""
     try:
