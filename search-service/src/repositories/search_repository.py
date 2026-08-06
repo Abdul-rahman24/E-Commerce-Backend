@@ -1,3 +1,4 @@
+import os
 import boto3
 from decimal import Decimal
 from typing import List
@@ -11,8 +12,9 @@ logger = get_logger("SearchRepository")
 
 class DynamoDBSearchRepository:
     def __init__(self):
-        # Use IAM Role credentials, set the company region
-        self.dynamodb = boto3.resource('dynamodb', region_name='ap-southeast-1')
+        # FIX: Dynamically fetch region to pass security scans
+        region = os.environ.get('AWS_REGION', 'ap-southeast-1')
+        self.dynamodb = boto3.resource('dynamodb', region_name=region)
         
         # Point to the new company table with the _abd suffix
         self.table = self.dynamodb.Table('searchindex_abd')
@@ -42,10 +44,10 @@ class DynamoDBSearchRepository:
             
             items = []
             for item in response.get('Items', []):
-                # 💡 THE FIX: Extract the product name and make it lowercase
+                # Extract the product name and make it lowercase
                 product_name = str(item.get('name', '')).lower()
                 
-                # 💡 THE CORE PREFIX LOGIC: Only match if the name STARTS WITH your query!
+                # THE CORE PREFIX LOGIC: Only match if the name STARTS WITH your query!
                 if product_name.startswith(query_clean):
                     items.append(SearchItem(
                         product_id=item['productId'],
