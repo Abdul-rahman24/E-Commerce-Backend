@@ -17,6 +17,11 @@ from src.exceptions.app_exceptions import NotFoundError, BadRequestError, Databa
 class TestCartService(unittest.TestCase):
     def setUp(self):
         self.mock_repo = MagicMock()
+        
+        # FIX: Tell the mock to return the exact cart object it receives, 
+        # mimicking the real repository's behavior.
+        self.mock_repo.save_cart.side_effect = lambda cart: cart
+        
         self.service = CartService(self.mock_repo)
 
     def test_get_cart_existing(self):
