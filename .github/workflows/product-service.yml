@@ -62,6 +62,7 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
           snyk test --file=requirements.txt --severity-threshold=high
+          snyk monitor --file=requirements.txt
 
   deploy:
     name: Deploy Code Update to AWS
