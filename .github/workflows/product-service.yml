@@ -52,6 +52,16 @@ jobs:
           args: >
             -Dsonar.python.coverage.reportPaths=coverage.xml
 
+      # --- NEW SNYK STEPS START HERE ---
+      - name: Install Snyk CLI
+        uses: snyk/actions/setup@master
+
+      - name: Snyk Security Scan
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          snyk test --severity-threshold=high
+
   deploy:
     name: Deploy Code Update to AWS
     needs: build-and-test
