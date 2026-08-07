@@ -6,7 +6,7 @@ session = boto3.Session(
 )
  
 dynamodb = session.client("dynamodb")
- 
+  
 response = dynamodb.create_table(
     TableName="products_sdk_test",
     KeySchema=[
